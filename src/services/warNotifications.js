@@ -3,25 +3,37 @@ const { escapeHtml, parseApiDate } = require('../utils/helpers');
 const clan = require('../callbacks/clan');
 
 class WarNotificationService {
-    constructor(clashOfClansClient, bot, chatId) {
+    constructor(clashOfClansClient, bot, chatId, database) {
         this.clashOfClansClient = clashOfClansClient;
         this.bot = bot;
         this.chatId = chatId; // Bildirimlerin gönderileceği grup/kanal ID'si
+        this.database = database; // Veritabanı referansı
         this.notificationState = {
             lastWarState: null,
             notificationsSent: {
                 warFound: false,
-                oneHourStart: false,
-                thirtyMinutesStart: false,
-                fiveMinutesStart: false,
+                fifteenMinutesStart: false, // Tek başlangıç bildirimi - 15 dakika
                 warStarted: false,
                 oneHourEnd: false,
                 thirtyMinutesEnd: false,
                 fiveMinutesEnd: false
             },
-            lastWarEndTime: null
+            lastWarEndTime: null,
+            currentWarId: null // Benzersiz savaş ID'si
         };
         this.isRunning = false;
+        this.apiErrorCount = 0; // API hata sayacı
+        this.maxApiErrors = 3; // Maksimum ardışık hata sayısı
+    }
+
+    // Benzersiz savaş ID'si oluştur
+    generateWarId(response) {
+        if (!response.preparationStartTime) return null;
+        
+        // preparationStartTime + opponent tag kombinasyonu
+        const opponentTag = response.opponent?.tag || 'unknown';
+        const teamSize = response.teamSize || 0;
+        return `${response.preparationStartTime}_${opponentTag}_${teamSize}`;
     }
 
     // Bildirim sistemi başlat
@@ -30,8 +42,8 @@ class WarNotificationService {
             return;
         }
         
-        // Her 5 dakikada bir kontrol et
-        this.cronJob = cron.schedule('*/5 * * * *', async () => {
+        // Her 3 dakikada bir kontrol et (API limitlerini korumak için)
+        this.cronJob = cron.schedule('*/3 * * * *', async () => {
             await this.checkWarStatus();
         }, {
             scheduled: false
@@ -39,6 +51,7 @@ class WarNotificationService {
 
         this.cronJob.start();
         this.isRunning = true;
+        console.log('🔔 Bildirim sistemi başlatıldı (3 dakika aralıkla)');
     }
 
     // Bildirim sistemi durdur
@@ -46,17 +59,38 @@ class WarNotificationService {
         if (this.cronJob) {
             this.cronJob.stop();
             this.isRunning = false;
+            console.log('🔕 Bildirim sistemi durduruldu');
         }
     }
 
     // Savaş durumunu kontrol et
     async checkWarStatus() {
         try {
-            const response = await this.clashOfClansClient.clanCurrentWarByTag('#9CPU2CQR');
+            const clanTag = await this.database.getConfig('clan_tag');
+            if (!clanTag) {
+                console.error('❌ Klan tag\'i yapılandırılmamış');
+                return;
+            }
+
+            const response = await this.clashOfClansClient.clanCurrentWarByTag(clanTag);
             const clanName = await clan.getClanName(this.clashOfClansClient);
+            
+            // API çağrısı başarılı, hata sayacını sıfırla
+            this.apiErrorCount = 0;
+            
+            // Yeni savaş mı kontrol et
+            const currentWarId = this.generateWarId(response);
+            if (currentWarId && currentWarId !== this.notificationState.currentWarId) {
+                console.log(`🆕 Yeni savaş tespit edildi: ${currentWarId}`);
+                this.notificationState.currentWarId = currentWarId;
+                await this.loadNotificationHistory(currentWarId);
+                // Yeni savaş başladığında state'i temizle
+                this.resetNotificationStateForNewWar();
+            }
             
             // Savaş durumu değişti mi kontrol et
             if (response.state !== this.notificationState.lastWarState) {
+                console.log(`🔄 Savaş durumu değişti: ${this.notificationState.lastWarState} -> ${response.state}`);
                 await this.handleStateChange(response, clanName);
             }
 
@@ -65,15 +99,45 @@ class WarNotificationService {
                 await this.handleWarTimeChecks(response, clanName);
             }
 
-            // Savaş bittiyse bildirim durumlarını sıfırla
+            // Savaş bittiyse state'i güncelle
             if (response.state === 'warEnded' && this.notificationState.lastWarState !== 'warEnded') {
-                this.resetNotificationState();
+                console.log('🏁 Savaş sona erdi');
             }
 
             this.notificationState.lastWarState = response.state;
 
         } catch (error) {
-            console.error('❌ Savaş durumu kontrolünde hata:', error.message);
+            this.apiErrorCount++;
+            console.error(`❌ Savaş durumu kontrolünde hata (${this.apiErrorCount}/${this.maxApiErrors}):`, error.message);
+            
+            // Çok fazla hata varsa sistemi geçici olarak durdur
+            if (this.apiErrorCount >= this.maxApiErrors) {
+                console.error('🚨 Çok fazla API hatası, bildirim sistemi geçici olarak durduruluyor...');
+                setTimeout(() => {
+                    this.apiErrorCount = 0;
+                    console.log('🔄 API hata sayacı sıfırlandı, sistem normal çalışmaya devam ediyor');
+                }, 300000); // 5 dakika bekle
+            }
+        }
+    }
+
+    // Bildirim geçmişini yükle
+    async loadNotificationHistory(warId) {
+        try {
+            // Güncellenmiş bildirim tiplerini kontrol et
+            const notificationTypes = [
+                'warFound', 'fifteenMinutesStart', 'warStarted', 
+                'oneHourEnd', 'thirtyMinutesEnd', 'fiveMinutesEnd'
+            ];
+
+            for (const notificationType of notificationTypes) {
+                const sent = await this.database.hasNotificationSent(notificationType, warId);
+                this.notificationState.notificationsSent[notificationType] = sent;
+            }
+
+            console.log(`📋 Bildirim geçmişi yüklendi: ${warId}`);
+        } catch (error) {
+            console.error('❌ Bildirim geçmişi yüklenirken hata:', error);
         }
     }
 
@@ -85,7 +149,7 @@ class WarNotificationService {
             case 'preparation':
                 if (!this.notificationState.notificationsSent.warFound) {
                     const message = this.createWarFoundMessage(response, clanName, safeOpponentName);
-                    await this.sendNotification(message);
+                    await this.sendNotification(message, 'warFound', this.notificationState.currentWarId);
                     this.notificationState.notificationsSent.warFound = true;
                 }
                 break;
@@ -93,14 +157,14 @@ class WarNotificationService {
             case 'inWar':
                 if (!this.notificationState.notificationsSent.warStarted) {
                     const message = this.createWarStartedMessage(response, clanName, safeOpponentName);
-                    await this.sendNotification(message);
+                    await this.sendNotification(message, 'warStarted', this.notificationState.currentWarId);
                     this.notificationState.notificationsSent.warStarted = true;
                 }
                 break;
                 
             case 'warEnded':
                 const message = this.createWarEndedMessage(response, clanName, safeOpponentName);
-                await this.sendNotification(message);
+                await this.sendNotification(message, 'warEnded', this.notificationState.currentWarId);
                 break;
         }
     }
@@ -109,61 +173,195 @@ class WarNotificationService {
     async handleWarTimeChecks(response, clanName) {
         const safeOpponentName = escapeHtml(response.opponent?.name || 'Bilinmeyen Rakip');
         
-        // Savaş başlangıç zamanı kontrolü (preparation aşamasında)
+        // Savaş başlangıç zamanı kontrolü (preparation aşamasında) - Sadece 15 dakika
         if (response.state === 'preparation' && response.startTime) {
-            await this.checkTimeWarnings(
+            await this.checkStartTimeWarning(
                 response, 
                 clanName, 
                 safeOpponentName, 
-                response.startTime, 
-                'start',
-                ['oneHourStart', 'thirtyMinutesStart', 'fiveMinutesStart']
+                response.startTime
             );
         }
         
-        // Savaş bitiş zamanı kontrolü (inWar aşamasında)
+        // Savaş bitiş zamanı kontrolü (inWar aşamasında) - Saldırı yapmayanlarla
         if (response.state === 'inWar' && response.endTime) {
-            await this.checkTimeWarnings(
+            await this.checkEndTimeWarnings(
                 response, 
                 clanName, 
                 safeOpponentName, 
-                response.endTime, 
-                'end',
-                ['oneHourEnd', 'thirtyMinutesEnd', 'fiveMinutesEnd']
+                response.endTime
             );
         }
     }
 
-    // Zaman uyarılarını kontrol et
-    async checkTimeWarnings(response, clanName, opponentName, targetTimeString, timeType, notificationKeys) {
+    // Savaş başlangıç zaman uyarısı (sadece 15 dakika)
+    async checkStartTimeWarning(response, clanName, opponentName, targetTimeString) {
         const targetTime = parseApiDate(targetTimeString);
-        if (!targetTime || isNaN(targetTime.getTime())) return;
+        if (!targetTime || isNaN(targetTime.getTime())) {
+            console.warn('⚠️ Geçersiz tarih formatı:', targetTimeString);
+            return;
+        }
 
         const now = new Date();
         const timeDiff = targetTime.getTime() - now.getTime();
         const minutesLeft = Math.floor(timeDiff / (1000 * 60));
-        const hoursLeft = Math.floor(minutesLeft / 60);
 
-        // 1 saat kaldı
-        if (hoursLeft <= 1 && minutesLeft > 30 && !this.notificationState.notificationsSent[notificationKeys[0]]) {
-            const message = this.createTimeWarningMessage(response, clanName, opponentName, minutesLeft, timeType);
-            await this.sendNotification(message);
-            this.notificationState.notificationsSent[notificationKeys[0]] = true;
+        // Negatif süre kontrolü
+        if (minutesLeft < 0) return;
+
+        // 12-18 dakika arası (15 dakika bildirimi)
+        if (minutesLeft >= 12 && minutesLeft <= 18 && !this.notificationState.notificationsSent.fifteenMinutesStart) {
+            const message = this.createStartTimeWarningMessage(response, clanName, opponentName, minutesLeft);
+            await this.sendNotification(message, 'fifteenMinutesStart', this.notificationState.currentWarId);
+            this.notificationState.notificationsSent.fifteenMinutesStart = true;
+            console.log(`⏰ 15 dakika başlangıç bildirimi gönderildi (${minutesLeft} dakika kaldı)`);
+        }
+    }
+
+    // Savaş bitiş zaman uyarıları (saldırı yapmayanlarla)
+    async checkEndTimeWarnings(response, clanName, opponentName, targetTimeString) {
+        const targetTime = parseApiDate(targetTimeString);
+        if (!targetTime || isNaN(targetTime.getTime())) {
+            console.warn('⚠️ Geçersiz tarih formatı:', targetTimeString);
+            return;
         }
 
-        // 30 dakika kaldı
-        if (minutesLeft <= 30 && minutesLeft > 5 && !this.notificationState.notificationsSent[notificationKeys[1]]) {
-            const message = this.createTimeWarningMessage(response, clanName, opponentName, minutesLeft, timeType);
-            await this.sendNotification(message);
-            this.notificationState.notificationsSent[notificationKeys[1]] = true;
+        const now = new Date();
+        const timeDiff = targetTime.getTime() - now.getTime();
+        const minutesLeft = Math.floor(timeDiff / (1000 * 60));
+
+        // Negatif süre kontrolü
+        if (minutesLeft < 0) return;
+
+        // 45-75 dakika arası (1 saat bildirim)
+        if (minutesLeft >= 45 && minutesLeft <= 75 && !this.notificationState.notificationsSent.oneHourEnd) {
+            const message = await this.createEndTimeWarningMessage(response, clanName, opponentName, minutesLeft);
+            await this.sendNotification(message, 'oneHourEnd', this.notificationState.currentWarId);
+            this.notificationState.notificationsSent.oneHourEnd = true;
+            console.log(`⏰ 1 saat bitiş bildirimi gönderildi (${minutesLeft} dakika kaldı)`);
         }
 
-        // 5 dakika kaldı
-        if (minutesLeft <= 5 && minutesLeft > 0 && !this.notificationState.notificationsSent[notificationKeys[2]]) {
-            const message = this.createTimeWarningMessage(response, clanName, opponentName, minutesLeft, timeType);
-            await this.sendNotification(message);
-            this.notificationState.notificationsSent[notificationKeys[2]] = true;
+        // 25-35 dakika arası (30 dakika bildirim)
+        if (minutesLeft >= 25 && minutesLeft <= 35 && !this.notificationState.notificationsSent.thirtyMinutesEnd) {
+            const message = await this.createEndTimeWarningMessage(response, clanName, opponentName, minutesLeft);
+            await this.sendNotification(message, 'thirtyMinutesEnd', this.notificationState.currentWarId);
+            this.notificationState.notificationsSent.thirtyMinutesEnd = true;
+            console.log(`⏰ 30 dakika bitiş bildirimi gönderildi (${minutesLeft} dakika kaldı)`);
         }
+
+        // 3-7 dakika arası (5 dakika bildirim)
+        if (minutesLeft >= 3 && minutesLeft <= 7 && !this.notificationState.notificationsSent.fiveMinutesEnd) {
+            const message = await this.createEndTimeWarningMessage(response, clanName, opponentName, minutesLeft);
+            await this.sendNotification(message, 'fiveMinutesEnd', this.notificationState.currentWarId);
+            this.notificationState.notificationsSent.fiveMinutesEnd = true;
+            console.log(`⏰ 5 dakika bitiş bildirimi gönderildi (${minutesLeft} dakika kaldı)`);
+        }
+    }
+
+    // Saldırı yapmayan oyuncuları bul
+    async getNonAttackers(warResponse) {
+        try {
+            if (!warResponse.clan || !warResponse.clan.members) {
+                return [];
+            }
+
+            const nonAttackers = [];
+            const totalAttacksPerMember = warResponse.attacksPerMember || 2;
+
+            for (const member of warResponse.clan.members) {
+                const attackCount = member.attacks ? member.attacks.length : 0;
+                
+                if (attackCount < totalAttacksPerMember) {
+                    // Doğrulanmış kullanıcı bilgisini al
+                    const verifiedUser = await this.database.getVerifiedUserByPlayerTag(member.tag);
+                    
+                    nonAttackers.push({
+                        name: member.name,
+                        tag: member.tag,
+                        mapPosition: member.mapPosition,
+                        attacksUsed: attackCount,
+                        attacksRemaining: totalAttacksPerMember - attackCount,
+                        telegramUser: verifiedUser || null
+                    });
+                }
+            }
+
+            // Map pozisyonuna göre sırala
+            nonAttackers.sort((a, b) => a.mapPosition - b.mapPosition);
+            return nonAttackers;
+
+        } catch (error) {
+            console.error('❌ Saldırı yapmayan oyuncuları alırken hata:', error);
+            return [];
+        }
+    }
+
+    // Savaş başlangıç zaman uyarı mesajı (15 dakika)
+    createStartTimeWarningMessage(response, clanName, opponentName, minutesLeft) {
+        return `⚠️ **SAVAŞ ${this.formatTimeLeft(minutesLeft).toUpperCase()} SONRA BAŞLIYOR!** ⚠️
+
+🏰 **${clanName}** vs **${opponentName}**
+
+📊 **Mevcut Durum:**
+🔵 Takım Büyüklüğü: ${response.teamSize} vs ${response.teamSize}
+🏆 Bizim yıldız: ${response.clan?.stars || 0}
+⭐ Rakip yıldız: ${response.opponent?.stars || 0}
+
+⚔️ **Hazırlıklarınızı tamamlayın!**
+💡 Saldırı planlarınızı yapın ve savunma stratejilerinizi gözden geçirin!`;
+    }
+
+    // Savaş bitiş zaman uyarı mesajı (saldırı yapmayanlarla)
+    async createEndTimeWarningMessage(response, clanName, opponentName, minutesLeft) {
+        const warningIcon = minutesLeft <= 5 ? '🚨' : minutesLeft <= 30 ? '⚠️' : '⏰';
+        const urgencyText = minutesLeft <= 5 ? 'SON' : '';
+        
+        let message = `${warningIcon} **SAVAŞ ${urgencyText} ${this.formatTimeLeft(minutesLeft).toUpperCase()} SONRA BİTİYOR!** ${warningIcon}
+
+🏰 **${clanName}** vs **${opponentName}**
+
+📊 **Mevcut Durum:**
+🏆 Bizim yıldız: ${response.clan?.stars || 0}
+⭐ Rakip yıldız: ${response.opponent?.stars || 0}
+💥 Bizim saldırı: ${response.clan?.attacks || 0}/${response.attacksPerMember * response.teamSize}
+🛡️ Rakip saldırı: ${response.opponent?.attacks || 0}/${response.attacksPerMember * response.teamSize}`;
+
+        // Saldırı yapmayanları ekle
+        const nonAttackers = await this.getNonAttackers(response);
+        
+        if (nonAttackers.length > 0) {
+            message += `\n\n🚨 **SALDIRI YAPMAYAN ÜYELERİMİZ** (${nonAttackers.length} kişi):`;
+            
+            let verifiedCount = 0;
+            let unverifiedCount = 0;
+            
+            for (const member of nonAttackers.slice(0, 15)) { // İlk 15 kişi (mesaj limiti için)
+                const positionText = `#${member.mapPosition}`;
+                const attackText = `${member.attacksUsed}/${member.attacksUsed + member.attacksRemaining}`;
+                
+                if (member.telegramUser) {
+                    const telegramName = member.telegramUser.telegram_first_name || 'Bilinmeyen';
+                    const username = member.telegramUser.telegram_username ? `@${member.telegramUser.telegram_username}` : '';
+                    message += `\n${positionText} ${member.name} (${attackText}) - ${telegramName} ${username}`;
+                    verifiedCount++;
+                } else {
+                    message += `\n${positionText} ${member.name} (${attackText}) - ❌ Doğrulanmamış`;
+                    unverifiedCount++;
+                }
+            }
+            
+            if (nonAttackers.length > 15) {
+                message += `\n... ve ${nonAttackers.length - 15} kişi daha`;
+            }
+            
+            message += `\n\n📊 **Özet:** ✅ ${verifiedCount} doğrulanmış, ❌ ${unverifiedCount} doğrulanmamış`;
+        } else {
+            message += `\n\n🎉 **TÜM ÜYELERİMİZ SALDIRDI!** 🎉`;
+        }
+
+        message += `\n\n🔥 **${minutesLeft <= 5 ? 'SON DAKİKA!' : 'HALA VAKIT VAR!'} Son saldırılarınızı yapın!**`;
+        
+        return message;
     }
 
     // Kalan süreyi formatla
@@ -184,10 +382,9 @@ class WarNotificationService {
         }
     }
 
-    // Savaş bulundu mesajı
+    // Savaş bulundu mesajı - sadeleştirildi
     createWarFoundMessage(response, clanName, opponentName) {
         const startDate = parseApiDate(response.startTime);
-        const startTime = startDate ? startDate.toLocaleString('tr-TR') : 'Bilinmiyor';
         
         let timeLeftMessage = '';
         if (startDate) {
@@ -195,29 +392,27 @@ class WarNotificationService {
             const timeDiff = startDate.getTime() - now.getTime();
             const minutesLeft = Math.floor(timeDiff / (1000 * 60));
             if (minutesLeft > 0) {
-                timeLeftMessage = `⏰ Kalan Süre: ${this.formatTimeLeft(minutesLeft)}\n`;
+                timeLeftMessage = `⏰ ${this.formatTimeLeft(minutesLeft)} sonra başlayacak`;
             }
         }
         
-        return `🔥 **SAVAŞ BULUNDU!** 🔥
+        return `🚨 **SAVAŞ BULUNDU!** 🚨
 
-⚔️ ${clanName} vs ${opponentName}
-👥 Takım Boyutu: ${response.teamSize}v${response.teamSize}
-🛠️ Durum: Hazırlık Aşaması
-🚀 Başlangıç: ${startTime}
+🏰 **${clanName}** vs **${opponentName}**
+
+📊 **Detaylar:**
+🔵 Bizim takım: ${response.teamSize} vs ${response.teamSize}
+🏆 Bizim yıldız: ${response.clan?.stars || 0}
+⭐ Rakip yıldız: ${response.opponent?.stars || 0}
+
 ${timeLeftMessage}
-📝 **Hazırlanın!**
-• Savaş düzenlerinizi kontrol edin
-• Taktiklerinizi planlayın
-• Asker bağışlarınızı hazırlayın
 
-🔔 Savaş başlamadan ve bitmeden önce ek bildirimler alacaksınız!`;
+💪 Hadi bakalım, savaşa hazırlanın! 🗡️`;
     }
 
     // Savaş başladı mesajı
     createWarStartedMessage(response, clanName, opponentName) {
         const endDate = parseApiDate(response.endTime);
-        const endTime = endDate ? endDate.toLocaleString('tr-TR') : 'Bilinmiyor';
         
         let timeLeftMessage = '';
         if (endDate) {
@@ -225,100 +420,72 @@ ${timeLeftMessage}
             const timeDiff = endDate.getTime() - now.getTime();
             const minutesLeft = Math.floor(timeDiff / (1000 * 60));
             if (minutesLeft > 0) {
-                timeLeftMessage = `⏰ Kalan Süre: ${this.formatTimeLeft(minutesLeft)}\n`;
+                timeLeftMessage = `⏰ ${this.formatTimeLeft(minutesLeft)} süreniz var!`;
             }
         }
-        
-        return `🚨 **SAVAŞ BAŞLADI!** 🚨
 
-⚔️ ${clanName} vs ${opponentName}
-👥 ${response.teamSize}v${response.teamSize}
-🏁 Bitiş: ${endTime}
+        return `⚔️ **SAVAŞ BAŞLADI!** ⚔️
+
+🏰 **${clanName}** vs **${opponentName}**
+
+📊 **Mevcut Durum:**
+🏆 Bizim yıldız: ${response.clan?.stars || 0}
+⭐ Rakip yıldız: ${response.opponent?.stars || 0}
+💥 Bizim saldırı: ${response.clan?.attacks || 0}/${response.attacksPerMember * response.teamSize}
+🛡️ Rakip saldırı: ${response.opponent?.attacks || 0}/${response.attacksPerMember * response.teamSize}
+
 ${timeLeftMessage}
-🎯 **Saldırın!**
-• ${response.attacksPerMember} saldırı hakkınız var
-• Strateji ile saldırın
-• Yıldızları toplayın!
 
-🏆 Zafer bizim olsun! 💪`;
-    }
-
-    // Zaman uyarısı mesajı
-    createTimeWarningMessage(response, clanName, opponentName, minutesLeft, timeType) {
-        const action = timeType === 'start' ? 'başlamasına' : 'bitmesine';
-        const icon = timeType === 'start' ? '🚀' : '⏰';
-        const status = response.state === 'preparation' ? 'Hazırlık' : 'Savaş Devam Ediyor';
-        const timeLeftFormatted = this.formatTimeLeft(minutesLeft);
-        
-        // Urgency level based on time left
-        let urgencyMessage = '';
-        if (minutesLeft <= 5) {
-            urgencyMessage = timeType === 'start' ? 
-                '🔥 **SON DAKİKA!** Hazır olun, savaş başlıyor!' : 
-                '🚨 **ACELE EDİN!** Saldırılarınızı tamamlayın!';
-        } else if (minutesLeft <= 30) {
-            urgencyMessage = timeType === 'start' ? 
-                '⚡ **SON 30 DAKİKA!** Final hazırlıklarını yapın!' : 
-                '⚡ **SON 30 DAKİKA!** Kalan saldırılarınızı yapın!';
-        } else {
-            urgencyMessage = timeType === 'start' ? 
-                '🛡️ Son hazırlıklarınızı yapın!' : 
-                '⚔️ Hala vakit var, stratejinizi planlayın!';
-        }
-        
-        return `${icon} **${timeLeftFormatted.toUpperCase()} KALDI!** ${icon}
-
-⚔️ ${clanName} vs ${opponentName}
-📊 Durum: ${status}
-⏱️ Savaş ${action} **${timeLeftFormatted}** kaldı!
-
-${urgencyMessage}
-
-${timeType === 'start' ? 
-'📋 **Son Kontroller:**\n• Savaş düzeninizi kontrol edin\n• Askerleri hazırlayın\n• Büyüleri kontrol edin' : 
-'🎯 **Unutmayın:**\n• Kalan saldırılarınızı yapın\n• Yıldızları kaçırmayın\n• Takım arkadaşlarınıza yardım edin'
-}`;
+🔥 Saldırılarınızı yapın! Klan için! 💪`;
     }
 
     // Savaş bitti mesajı
     createWarEndedMessage(response, clanName, opponentName) {
         const result = this.getWarResult(response);
-        const resultIcon = response.clan.stars > response.opponent.stars ? '🎉' : 
-                          response.clan.stars < response.opponent.stars ? '😢' : '🤝';
         
-        return `${resultIcon} **SAVAŞ BİTTİ!** ${resultIcon}
+        return `🏁 **SAVAŞ BİTTİ!** 🏁
 
-⚔️ ${clanName} vs ${opponentName}
-🏆 Sonuç: ${result}
+🏰 **${clanName}** vs **${opponentName}**
 
-📊 **FINAL SKORU:**
-⭐ Yıldızlar: ${response.clan.stars} - ${response.opponent.stars}
-💥 Hasar: %${response.clan.destructionPercentage.toFixed(1)} - %${response.opponent.destructionPercentage.toFixed(1)}
-🎯 Saldırılar: ${response.clan.attacks}/${response.teamSize * response.attacksPerMember} - ${response.opponent.attacks}/${response.teamSize * response.attacksPerMember}
+📊 **Final Sonuçları:**
+🏆 Bizim yıldız: ${response.clan?.stars || 0}
+⭐ Rakip yıldız: ${response.opponent?.stars || 0}
+💥 Bizim saldırı: ${response.clan?.attacks || 0}/${response.attacksPerMember * response.teamSize}
+🛡️ Rakip saldırı: ${response.opponent?.attacks || 0}/${response.attacksPerMember * response.teamSize}
+💰 Hasar: ${response.clan?.destructionPercentage || 0}% vs ${response.opponent?.destructionPercentage || 0}%
 
-${response.clan.stars > response.opponent.stars ? 
-'🎊 Tebrikler! Zafer bizim! 🏆\n🌟 Harika bir performans sergiledik!' : 
-response.clan.stars < response.opponent.stars ?
-'😤 Bir sonraki savaşta daha iyisini yapacağız! 💪\n📈 Öğrendiklerimizle güçleneceğiz!' :
-'🤝 İyi mücadele! Berabere bittik! ⚖️\n💯 Her iki taraf da elinden geleni yaptı!'
-}`;
+${result.icon} **${result.text}**
+
+${result.isWin ? '🎉 Tebrikler! Harika savaş!' : '💪 Bir sonrakinde daha iyisini yapacağız!'}`;
     }
 
     // Savaş sonucunu belirle
     getWarResult(response) {
-        if (response.clan.stars > response.opponent.stars) return 'KAZANDIK! 🎉';
-        if (response.clan.stars < response.opponent.stars) return 'Kaybettik 😢';
-        if (response.clan.destructionPercentage > response.opponent.destructionPercentage) return 'Hasarda Kazandık! 🎯';
-        if (response.clan.destructionPercentage < response.opponent.destructionPercentage) return 'Hasarda Kaybettik 😤';
-        return 'Berabere! 🤝';
+        const ourStars = response.clan?.stars || 0;
+        const theirStars = response.opponent?.stars || 0;
+        
+        if (ourStars > theirStars) {
+            return { icon: '🏆', text: 'ZAFER!', isWin: true };
+        } else if (ourStars < theirStars) {
+            return { icon: '😔', text: 'Mağlubiyet', isWin: false };
+        } else {
+            return { icon: '🤝', text: 'Beraberlik', isWin: false };
+        }
     }
 
-    // Bildirim gönder
-    async sendNotification(message) {
+    // Bildirim gönder ve veritabanına kaydet
+    async sendNotification(message, notificationType, warId) {
         try {
             await this.bot.telegram.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
+            
+            // Veritabanına kaydet
+            if (this.database && notificationType && warId) {
+                await this.database.addNotificationHistory(notificationType, warId, message, this.chatId);
+            }
+            
+            console.log(`✅ Bildirim gönderildi: ${notificationType || 'Bilinmeyen'}`);
         } catch (error) {
-            console.error('❌ Bildirim gönderilirken hata:', error.message);
+            console.error('❌ Bildirim gönderim hatası:', error.message);
         }
     }
 
@@ -326,9 +493,7 @@ response.clan.stars < response.opponent.stars ?
     resetNotificationState() {
         this.notificationState.notificationsSent = {
             warFound: false,
-            oneHourStart: false,
-            thirtyMinutesStart: false,
-            fiveMinutesStart: false,
+            fifteenMinutesStart: false, // Güncellenmiş bildirim türleri
             warStarted: false,
             oneHourEnd: false,
             thirtyMinutesEnd: false,
@@ -336,13 +501,69 @@ response.clan.stars < response.opponent.stars ?
         };
     }
 
-    // Durumu göster
+    // Durum bilgisi al
     getStatus() {
         return {
             isRunning: this.isRunning,
             lastWarState: this.notificationState.lastWarState,
-            notificationsSent: this.notificationState.notificationsSent
+            notificationsSent: { ...this.notificationState.notificationsSent },
+            currentWarId: this.notificationState.currentWarId,
+            chatId: this.chatId
         };
+    }
+
+    // Yeni savaş başladığında state'i temizle
+    resetNotificationStateForNewWar() {
+        this.resetNotificationState();
+        this.notificationState.lastWarState = null;
+        this.notificationState.currentWarId = null;
+        console.log('🔄 Yeni savaş için state temizlendi');
+    }
+
+    // Test bildirimi gönder
+    async sendTestNotification() {
+        try {
+            const testMessage = `🧪 **TEST BİLDİRİMİ** 🧪
+
+🔔 Bildirim sistemi çalışıyor!
+
+📊 **Sistem Durumu:**
+⚡ Durum: ${this.isRunning ? 'Aktif' : 'Pasif'}
+🆔 Chat ID: ${this.chatId}
+🕐 Test Zamanı: ${new Date().toLocaleString('tr-TR')}
+🔄 API Hata Sayısı: ${this.apiErrorCount}/${this.maxApiErrors}
+
+✅ Eğer bu mesajı görebiliyorsanız, bildirim sistemi düzgün çalışıyor!`;
+
+            await this.bot.telegram.sendMessage(this.chatId, testMessage, { parse_mode: 'Markdown' });
+            console.log('✅ Test bildirimi başarıyla gönderildi');
+            return true;
+        } catch (error) {
+            console.error('❌ Test bildirimi gönderilirken hata:', error.message);
+            return false;
+        }
+    }
+
+    // Detaylı sistem durumu
+    getDetailedStatus() {
+        return {
+            isRunning: this.isRunning,
+            apiErrorCount: this.apiErrorCount,
+            maxApiErrors: this.maxApiErrors,
+            lastWarState: this.notificationState.lastWarState,
+            currentWarId: this.notificationState.currentWarId,
+            notificationsSent: { ...this.notificationState.notificationsSent },
+            chatId: this.chatId,
+            cronSchedule: '*/3 * * * *', // Her 3 dakika
+            lastCheck: new Date().toLocaleString('tr-TR')
+        };
+    }
+
+    // Bildirim sistemini manuel olarak tetikle (debug için)
+    async forceCheck() {
+        console.log('🔧 Manuel savaş durumu kontrolü başlatılıyor...');
+        await this.checkWarStatus();
+        console.log('🔧 Manuel kontrol tamamlandı');
     }
 }
 

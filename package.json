@@ -5,15 +5,26 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "node index.js"
+    "dev": "node index.js",
+    "setup": "node setup.js",
+    "setup:update": "node setup.js --update",
+    "test:setup": "node test_setup.js",
+    "clean": "rm -f bot.db bot_backup_*.db"
   },
-  "keywords": ["telegram", "bot", "clash-of-clans", "coc", "war-notifications"],
+  "keywords": [
+    "telegram",
+    "bot",
+    "clash-of-clans",
+    "coc",
+    "war-notifications"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "clash-of-clans-api": "^0.6.4",
+    "axios": "^1.6.0",
     "dotenv": "^16.0.0",
-    "node-cron": "^3.0.3",
-    "telegraf": "^3.38.0"
+    "node-cron": "^4.1.0",
+    "sqlite3": "^5.1.7",
+    "telegraf": "^4.16.3"
   }
 }

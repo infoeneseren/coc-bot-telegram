@@ -1,0 +1,25 @@
+klan - Klanın genel bilgileri ve istatistikleri
+uyeler - Tüm klan üyelerinin detaylı listesi
+baskinlar - Başkent baskın sezonları ve istatistikleri
+oyuncu #tag - Herhangi bir oyuncunun detaylı bilgileri
+savas - Mevcut savaş durumu ve skorları
+savas_analiz - Detaylı savaş performans analizi
+savas_saldirmayanlar - Saldırı yapmayan üyeler
+savas_gecmis - Son savaşların geçmişi
+savas_lig - Klan Savaş Ligi durumu
+tum_ligler - Tüm lig sistemlerinin özeti
+ligler - Savaş ligleri bilgileri
+basken_ligleri - Başkent (Capital) ligleri
+builder_ligleri - Builder Base ligleri
+legend_siralamasi - Legend League top sıralaması
+klan_siralamasi - Normal klan sıralaması
+oyuncu_siralamasi - Normal oyuncu sıralaması
+builder_oyuncu_siralama - Builder Base oyuncu sıralaması
+builder_klan_siralama - Builder Base klan sıralaması
+basken_siralama - Başkent (Capital) sıralaması
+yardim - Bu menüyü tekrar göster
+yardim_klan - Klan komutları detayları
+yardim_oyuncu - Oyuncu komutları detayları
+yardim_savas - Savaş komutları detayları
+yardim_lig - Lig komutları detayları
+id - Telegram ID'ni öğren

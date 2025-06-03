@@ -9,21 +9,45 @@ function escapeHtml(text) {
 		.replace(/'/g, '&#x27;');
 }
 
-// API tarih formatını Date objesine çevir
+// API tarih formatını Date objesine çevir - İyileştirilmiş
 function parseApiDate(dateString) {
-	if (!dateString) return null;
+	if (!dateString || typeof dateString !== 'string') {
+		console.warn('⚠️ Geçersiz tarih string\'i:', dateString);
+		return null;
+	}
 	
-	// Format: "20250529T130521.000Z" -> "2025-05-29T13:05:21.000Z"
-	const formatted = dateString.replace(
-		/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})\.(\d{3})Z$/,
-		'$1-$2-$3T$4:$5:$6.$7Z'
-	);
-	
-	return new Date(formatted);
+	try {
+		// Format: "20250529T130521.000Z" -> "2025-05-29T13:05:21.000Z"
+		const formatted = dateString.replace(
+			/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})\.(\d{3})Z$/,
+			'$1-$2-$3T$4:$5:$6.$7Z'
+		);
+		
+		// Eğer format değişmediyse, zaten doğru formatta olabilir
+		const dateToUse = formatted !== dateString ? formatted : dateString;
+		
+		const parsedDate = new Date(dateToUse);
+		
+		// Geçerli tarih mi kontrol et
+		if (isNaN(parsedDate.getTime())) {
+			console.warn('⚠️ Tarih parse edilemedi:', dateString);
+			return null;
+		}
+		
+		return parsedDate;
+	} catch (error) {
+		console.error('❌ Tarih parse hatası:', error.message, 'Input:', dateString);
+		return null;
+	}
 }
 
-// Kalan süreyi hesapla
+// Kalan süreyi hesapla - İyileştirilmiş
 function getTimeRemaining(targetDate) {
+	if (!targetDate || !(targetDate instanceof Date)) {
+		console.warn('⚠️ Geçersiz hedef tarih');
+		return null;
+	}
+	
 	const now = new Date();
 	const diffMs = targetDate.getTime() - now.getTime();
 	

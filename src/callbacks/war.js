@@ -54,26 +54,48 @@ const getCurrentWar = async (ctx, clashOfClansClient) => {
 			message += `💥 Hasar: %${response.clan.destructionPercentage.toFixed(1)} - %${response.opponent.destructionPercentage.toFixed(1)}\n`;
 			message += `🎯 Saldırılar: ${response.clan.attacks}/${response.teamSize * response.attacksPerMember} - ${response.opponent.attacks}/${response.teamSize * response.attacksPerMember}\n`;
 			
-			// Durumu belirle
+			// Duruma göre farklı mesajlar
 			let warResult = '';
-			if (response.clan.stars > response.opponent.stars) {
-				warResult = '🎉 Önde gidiyoruz!';
-			} else if (response.clan.stars < response.opponent.stars) {
-				warResult = '😤 Gerideyiz, saldırın!';
-			} else {
-				// Yıldız eşitse yüzdeye bak
-				if (response.clan.destructionPercentage > response.opponent.destructionPercentage) {
-					warResult = '⚖️ Yıldız eşit, hasarda önde!';
-				} else if (response.clan.destructionPercentage < response.opponent.destructionPercentage) {
-					warResult = '⚖️ Yıldız eşit, hasarda geride!';
+			if (response.state === 'preparation') {
+				// Hazırlık aşamasında
+				warResult = '🛠️ Hazırlık aşaması - Savaş düzeninizi kontrol edin!';
+			} else if (response.state === 'inWar') {
+				// Savaş devam ediyor
+				if (response.clan.stars > response.opponent.stars) {
+					warResult = '🎉 Önde gidiyoruz! Avantajı koruyun!';
+				} else if (response.clan.stars < response.opponent.stars) {
+					warResult = '😤 Gerideyiz, saldırın!';
 				} else {
-					warResult = '🤝 Tam eşitlik!';
+					// Yıldız eşitse yüzdeye bak
+					if (response.clan.destructionPercentage > response.opponent.destructionPercentage) {
+						warResult = '⚖️ Yıldız eşit, hasarda öndeyiz!';
+					} else if (response.clan.destructionPercentage < response.opponent.destructionPercentage) {
+						warResult = '⚖️ Yıldız eşit, hasarda gerideyiz! Saldırın!';
+					} else {
+						warResult = '🤝 Tam eşitlik! Her saldırı kritik!';
+					}
+				}
+			} else if (response.state === 'warEnded') {
+				// Savaş bitti
+				if (response.clan.stars > response.opponent.stars) {
+					warResult = '🎉 Savaşı kazandık! Tebrikler!';
+				} else if (response.clan.stars < response.opponent.stars) {
+					warResult = '😞 Savaşı kaybettik. Bir sonrakinde daha iyi!';
+				} else {
+					// Yıldız eşitse yüzdeye bak
+					if (response.clan.destructionPercentage > response.opponent.destructionPercentage) {
+						warResult = '🎯 Hasarda kazandık! Tebrikler!';
+					} else if (response.clan.destructionPercentage < response.opponent.destructionPercentage) {
+						warResult = '😤 Hasarda kaybettik. Çok yakındı!';
+					} else {
+						warResult = '🤝 Berabere bitti! Harika mücadele!';
+					}
 				}
 			}
 			message += `\n${warResult}\n`;
 			
-			// En iyi performanslar
-			if (response.clan.members && response.clan.members.length > 0) {
+			// En iyi performanslar (sadece savaş devam ediyor veya bittiyse)
+			if ((response.state === 'inWar' || response.state === 'warEnded') && response.clan.members && response.clan.members.length > 0) {
 				message += `\n⭐ **EN İYİ PERFORMANSLAR**\n`;
 				
 				// En çok yıldız alan saldırılar
@@ -97,21 +119,28 @@ const getCurrentWar = async (ctx, clashOfClansClient) => {
 				});
 				
 				const topAttacks = bestAttacks.slice(0, 3);
-				topAttacks.forEach((attack, index) => {
-					const safeName = escapeHtml(attack.name);
-					message += `${index + 1}. ${safeName}: ${attack.stars}⭐ %${attack.percentage}\n`;
-				});
+				if (topAttacks.length > 0) {
+					topAttacks.forEach((attack, index) => {
+						const safeName = escapeHtml(attack.name);
+						message += `${index + 1}. ${safeName}: ${attack.stars}⭐ %${attack.percentage}\n`;
+					});
+				} else {
+					message += `Henüz saldırı yapılmamış.\n`;
+				}
 				
-				// Kalan saldırı sayısı
+				// Saldırı istatistikleri
 				const totalAttacks = response.teamSize * response.attacksPerMember;
 				const usedAttacks = response.clan.attacks;
 				const remainingAttacks = totalAttacks - usedAttacks;
 				
 				message += `\n🎯 **SALDIRI İSTATİSTİKLERİ**\n`;
 				message += `✅ Kullanılan: ${usedAttacks}/${totalAttacks}\n`;
-				message += `⏳ Kalan: ${remainingAttacks}\n`;
 				
-				// Eksik saldırı yapan üyeler (hem hiç saldırmayanlar hem eksik saldırı yapanlar)
+				if (response.state === 'inWar') {
+					message += `⏳ Kalan: ${remainingAttacks}\n`;
+				}
+				
+				// Eksik saldırı yapan üyeler listesi (her durumda göster)
 				const incompleteAttackers = response.clan.members.filter(member => {
 					const memberAttacks = member.attacks ? member.attacks.length : 0;
 					return memberAttacks < response.attacksPerMember;
@@ -138,11 +167,24 @@ const getCurrentWar = async (ctx, clashOfClansClient) => {
 const getNonAttackers = async (ctx, clashOfClansClient) => {
 	let message = '';
 	try {
+		// Database instance'ı al
+		const Database = require('../services/database');
+		const database = new Database();
+		
 		const response = await clashOfClansClient.clanCurrentWarByTag('#9CPU2CQR');
 		if (response.state === 'notInWar') {
 			message = '🕊️ Klan şu anda savaşta değil.';
 		} else {
 			const safeClanName = escapeHtml(response.clan.name);
+			
+			// Doğrulanmış kullanıcıları al
+			const verifiedUsers = await database.getAllVerifiedUsers();
+			
+			// Tag'e göre hızlı arama için map oluştur
+			const verifiedMap = new Map();
+			verifiedUsers.forEach(user => {
+				verifiedMap.set(user.coc_player_tag, user);
+			});
 			
 			message += `***** ⚠️ EKSİK SALDIRI LİSTESİ *****\n\n`;
 			message += `🏛️ Klan: ${safeClanName}\n`;
@@ -165,6 +207,24 @@ const getNonAttackers = async (ctx, clashOfClansClient) => {
 					const memberAttacks = member.attacks ? member.attacks.length : 0;
 					return memberAttacks === response.attacksPerMember;
 				});
+
+				// Üye bilgisi formatlamak için helper fonksiyon
+				const formatMemberWithTelegram = (member, index, attackCount, maxAttacks) => {
+					const safeName = escapeHtml(member.name);
+					const verifiedUser = verifiedMap.get(member.tag);
+					
+					let memberInfo = `${index + 1}. ${safeName} (TH${member.townhallLevel}) - ${attackCount}/${maxAttacks}`;
+					
+					if (verifiedUser && verifiedUser.telegram_username) {
+						memberInfo += `\n   📱 @${verifiedUser.telegram_username} ✅`;
+					} else if (verifiedUser) {
+						memberInfo += `\n   📱 ${verifiedUser.telegram_first_name} ✅`;
+					} else {
+						memberInfo += `\n   📱 Doğrulanmamış ❌`;
+					}
+					
+					return memberInfo;
+				};
 				
 				// Hiç saldırmayanlar
 				if (nonAttackers.length > 0) {
@@ -172,10 +232,8 @@ const getNonAttackers = async (ctx, clashOfClansClient) => {
 					nonAttackers
 						.sort((a, b) => b.townhallLevel - a.townhallLevel)
 						.forEach((member, index) => {
-							const safeName = escapeHtml(member.name);
-							message += `${index + 1}. ${safeName} (TH${member.townhallLevel}) - 0/${response.attacksPerMember}\n`;
+							message += formatMemberWithTelegram(member, index, 0, response.attacksPerMember) + '\n\n';
 						});
-					message += '\n';
 				}
 				
 				// Eksik saldırı yapanlar
@@ -184,11 +242,9 @@ const getNonAttackers = async (ctx, clashOfClansClient) => {
 					partialAttackers
 						.sort((a, b) => b.townhallLevel - a.townhallLevel)
 						.forEach((member, index) => {
-							const safeName = escapeHtml(member.name);
 							const memberAttacks = member.attacks.length;
-							message += `${index + 1}. ${safeName} (TH${member.townhallLevel}) - ${memberAttacks}/${response.attacksPerMember}\n`;
+							message += formatMemberWithTelegram(member, index, memberAttacks, response.attacksPerMember) + '\n\n';
 						});
-					message += '\n';
 				}
 				
 				// Tam saldırı yapanlar
@@ -197,8 +253,7 @@ const getNonAttackers = async (ctx, clashOfClansClient) => {
 					fullAttackers
 						.sort((a, b) => b.townhallLevel - a.townhallLevel)
 						.forEach((member, index) => {
-							const safeName = escapeHtml(member.name);
-							message += `${index + 1}. ${safeName} (TH${member.townhallLevel}) - ${response.attacksPerMember}/${response.attacksPerMember}\n`;
+							message += formatMemberWithTelegram(member, index, response.attacksPerMember, response.attacksPerMember) + '\n\n';
 						});
 				}
 				
@@ -206,19 +261,34 @@ const getNonAttackers = async (ctx, clashOfClansClient) => {
 				const totalMembers = response.clan.members.length;
 				const problemMembers = nonAttackers.length + partialAttackers.length;
 				
-				message += `\n📊 **ÖZET**\n`;
+				// Doğrulama durumu özeti
+				const verifiedInNonAttackers = nonAttackers.filter(member => verifiedMap.has(member.tag)).length;
+				const verifiedInPartialAttackers = partialAttackers.filter(member => verifiedMap.has(member.tag)).length;
+				const verifiedInFullAttackers = fullAttackers.filter(member => verifiedMap.has(member.tag)).length;
+				const totalVerified = verifiedInNonAttackers + verifiedInPartialAttackers + verifiedInFullAttackers;
+				
+				message += `📊 **GENEL ÖZET**\n`;
 				message += `👥 Toplam Üye: ${totalMembers}\n`;
-				message += `❌ Hiç Saldırmayan: ${nonAttackers.length}\n`;
-				message += `⚠️ Eksik Saldırı: ${partialAttackers.length}\n`;
-				message += `✅ Tam Saldırı: ${fullAttackers.length}\n`;
+				message += `❌ Hiç Saldırmayan: ${nonAttackers.length} (${verifiedInNonAttackers} doğrulanmış)\n`;
+				message += `⚠️ Eksik Saldırı: ${partialAttackers.length} (${verifiedInPartialAttackers} doğrulanmış)\n`;
+				message += `✅ Tam Saldırı: ${fullAttackers.length} (${verifiedInFullAttackers} doğrulanmış)\n`;
 				message += `⚠️ Sorunlu Üye: ${problemMembers}/${totalMembers}\n`;
+				message += `📱 Toplam Doğrulanmış: ${totalVerified}/${totalMembers}\n`;
 				
 				if (problemMembers > 0) {
 					const problemRate = Math.round((problemMembers / totalMembers) * 100);
 					message += `📈 Sorun Oranı: %${problemRate}\n`;
 				}
+				
+				if (totalVerified > 0) {
+					const verificationRate = Math.round((totalVerified / totalMembers) * 100);
+					message += `🔗 Doğrulama Oranı: %${verificationRate}\n`;
+				}
 			}
 		}
+		
+		// Database bağlantısını kapat
+		database.close();
 	} catch (e) {
 		message = clashOfClansReplies.getErrorMessage(e);
 	}

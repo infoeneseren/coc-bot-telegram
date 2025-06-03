@@ -2,232 +2,247 @@
 	<img src="https://api-assets.clashofclans.com/badges/200/BbOiJGTyOXe7oxCFiCYfg-oRyzXm8ZeN_rFjnjNn9HA.png" height="200" alt="dostluk klan rozeti" />
 </p>
 
-# 🤖 dostluk Clash of Clans Telegram Bot
+# 🤖 Clash of Clans Telegram Bot
 
-dostluk klanı için geliştirilmiş kapsamlı Clash of Clans Telegram botu. Klan bilgileri, oyuncu istatistikleri, savaş analizleri ve **otomatik savaş bildirimlerini** içerir.
+Modern ve kapsamlı Clash of Clans Telegram botu. SQLite veritabanı ile yapılandırma yönetimi, kullanıcı doğrulama sistemi ve akıllı savaş bildirimleri.
 
 ## ✨ Özellikler
 
-### 🏛️ Klan Yönetimi
-- Klan bilgileri ve istatistikleri
-- Üye listeleri ve detayları
-- Dinamik klan ismi sistemi
+### 🔐 Güvenlik & Doğrulama
 
-### 👤 Oyuncu Analizi
-- Kapsamlı oyuncu profilleri
-- Asker, büyü ve kahraman seviyeleri
-- Başarım takibi ve ilerleme
-- Hızlı etiket tanıma (#ABC123)
+- **Kullanıcı Doğrulama Sistemi**: Telegram kullanıcılarını CoC hesapları ile eşleme
+- **Çoklu Hesap Desteği**: Bir kullanıcı birden fazla köy eşleyebilir
+- **Admin Yetkilendirme**: Gelişmiş admin panel sistemi
+- **Yeni Üye Karşılama**: Otomatik hoş geldin mesajı ve doğrulama rehberi
 
-### ⚔️ Gelişmiş Savaş Sistemi
-- Mevcut savaş durumu ve analiz
-- Townhall dağılımı karşılaştırması
-- Saldırı verimliliği ve istatistikleri
-- Eksik saldırı yapan üye takibi
-- Savaş geçmişi ve başarı oranları
-- Klan Savaş Ligi bilgileri
+### 📊 Klan Yönetimi
 
-### 🔔 **YENİ: Otomatik Savaş Bildirimleri**
-- 🔥 Savaş bulunduğunda anında bildirim
-- ⏰ Savaş başlamadan 1 saat, 30 dakika, 5 dakika önce uyarılar
-- 🚨 Savaş başladığında bildirim
-- 🏆 Savaş bittiğinde sonuç bildirimi
-- 📊 Kapsamlı bildirim yönetimi
+- **Klan Bilgileri**: Detaylı klan istatistikleri
+- **Üye Listesi**: Sadece doğrulanmış hesapların görünmesi
+- **Başkent Baskınları**: Sezon bazlı baskın raporları
+- **Klan Sıralamaları**: Lokasyon bazlı sıralamalar
 
-### 🏆 Sıralama Sistemleri
-- Türkiye klan sıralaması
-- Türkiye oyuncu sıralaması
-- Lig sistemi bilgileri
+### ⚔️ Savaş Sistemi
+
+- **Akıllı Bildirimler**: Savaş durumuna göre otomatik bildirimler
+- **Bildirim Geçmişi**: Tekrar bildirim göndermeme sistemi
+- **Savaş Analizi**: Detaylı savaş raporları
+- **Saldırmayan Üyeler**: Saldırı yapmayan üye listesi
+- **Savaş Ligi**: CWL bilgileri ve analizi
+
+### 🏆 Sıralama & Ligler
+
+- **Global Sıralamalar**: Oyuncu ve klan sıralamaları
+- **Builder Base**: Ayrı BB sıralamaları
+- **Legend Ligi**: Legend sezonu sıralamaları
+- **Tüm Ligler**: Kapsamlı lig bilgileri
+
+### 💾 Veritabanı & Konfigürasyon
+
+- **SQLite Veritabanı**: Dosya tabanlı, kolay yedekleme
+- **Env-Free**: .env dosyası gerektirmez
+- **Kolay Kurulum**: İnteraktif setup sistemi
+- **Runtime Konfigürasyon**: Çalışırken ayar değiştirme
 
 ## 🚀 Kurulum
 
-### 1. Gereksinimler
-```bash
-Node.js 14.0+
-npm
-Telegram Bot Token
-Clash of Clans API Token (ücretsiz)
-```
+### 1. Gereksinimleri Yükleyin
 
-### 2. Bağımlılıkları Yükle
 ```bash
 npm install
 ```
 
-### 3. Ortam Değişkenlerini Ayarla
-`env_example.txt` dosyasını `.env` olarak kopyalayın ve düzenleyin:
+### 2. Bot Konfigürasyonu
 
-```env
-# Telegram Bot Token (@BotFather'dan alın)
-BOT_TOKEN=your_telegram_bot_token_here
-
-# Klan savaşı bildirimlerinin gönderileceği grup/kanal ID'si
-# Bu ID'yi almak için: @userinfobot'u grubunuza ekleyin ve /start yazın
-NOTIFICATION_CHAT_ID=your_group_or_channel_id_here
+```bash
+npm run setup
 ```
 
-### 4. Bot Tokenları
+Kurulum sırasında gerekli bilgiler:
 
-#### Telegram Bot Token:
-1. Telegram'da @BotFather'a mesaj gönderin
-2. `/newbot` komutunu kullanın
-3. Bot adı ve kullanıcı adı belirleyin
-4. Verilen token'ı `.env` dosyasına ekleyin
+- **Bot Token**: @BotFather'dan alacağınız token
+- **CoC API Key**: [developer.clashofclans.com](https://developer.clashofclans.com) adresinden
+- **Klan Tag**: Klanınızın etiketi (# ile birlikte)
+- **Admin ID'leri**: Telegram kullanıcı ID'leri (virgülle ayırın)
+- **Bildirim Chat ID**: (Opsiyonel) Savaş bildirimleri için grup ID'si
 
-#### Bildirim Chat ID:
-1. @userinfobot'u grubunuza ekleyin
-2. `/start` yazın
-3. Grup ID'sini `.env` dosyasına ekleyin
+### 3. Botu Başlatın
 
-#### Admin User ID'leri:
-1. @userinfobot'a özel mesaj gönderin
-2. `/start` yazın
-3. Kullanıcı ID'nizi alın
-4. Birden fazla admin için virgülle ayırın: `123456789,987654321`
-
-### 5. Botu Başlat
 ```bash
 npm start
 ```
 
-## 📱 Komutlar
+## ⚙️ Konfigürasyon Yönetimi
 
-### 🏛️ Klan Komutları
+### Mevcut Ayarları Görüntüleme
+
+```bash
+npm run setup:update
+```
+
+### Admin Panel ile Yönetim
+
+Bot içerisinden `/admin` komutu ile:
+
+- `/config_goster` - Mevcut ayarları göster
+- `/config_duzenle` - Ayarları düzenle (yakında)
+
+## 🔐 Kullanıcı Doğrulama Sistemi
+
+### Yeni Üye Süreci
+
+1. Kullanıcı gruba katılır
+2. Bot otomatik hoş geldin mesajı gönderir
+3. Kullanıcı `/dogrula` komutunu kullanır
+4. Klandaki müsait hesaplar listelenir
+5. Kullanıcı kendi hesabını seçer
+6. Doğrulama tamamlanır
+
+### Doğrulama Özelikleri
+
+- ✅ Zaten eşlenmiş hesaplar görünmez
+- ✅ Bir kullanıcı birden fazla hesap eşleyebilir
+- ✅ Doğrulanmamış kullanıcılar komut kullanamaz
+- ✅ Adminler doğrulama olmadan komut kullanabilir
+
+## 📱 Bot Komutları
+
+### 🏰 Klan Komutları
+
 - `/klan` - Klan bilgileri
-- `/uyeler` - Üye listesi
-
-### 👤 Oyuncu Komutları
-- `/oyuncu #tag` - Oyuncu detayları
-- `#ABC123` - Hızlı oyuncu sorgusu
+- `/uyeler` - Klan üyeleri (sadece doğrulanmış hesaplar gösterilmez)
+- `/baskinlar` - Başkent baskın sezonları
 
 ### ⚔️ Savaş Komutları
+
 - `/savas` - Mevcut savaş durumu
 - `/savas_analiz` - Detaylı savaş analizi
-- `/savas_saldirmayanlar` - Eksik saldırı listesi
+- `/savas_saldirmayanlar` - Saldırı yapmayan üyeler
 - `/savas_gecmis` - Savaş geçmişi
-- `/savas_lig` - Klan Savaş Ligi
+- `/savas_lig` - Savaş ligi bilgileri
+
+### 👤 Oyuncu Komutları
+
+- `/oyuncu [tag]` - Oyuncu bilgileri
+- `#PLAYERTAG` - Mesaj olarak tag gönderme
 
 ### 🏆 Sıralama Komutları
-- `/klan_siralamasi` - Türkiye klan sıralaması
-- `/oyuncu_siralamasi` - Türkiye oyuncu sıralaması
-- `/ligler` - Lig sistemi bilgileri
+
+- `/klan_siralamasi` - Klan sıralamaları
+- `/oyuncu_siralamasi` - Oyuncu sıralamaları
+- `/legend_siralamasi` - Legend sıralamaları
+- `/basken_siralama` - Başkent sıralamaları
 
 ### 🔧 Admin Komutları
-- `/admin` - Admin paneli (sadece adminler)
 
-### 📚 Yardım Komutları
-- `/yardim` - Ana yardım menüsü
+- `/admin` - Admin paneli
+- `/bildirim_durum` - Bildirim sistemi durumu
+- `/config_goster` - Konfigürasyon görüntüleme
+
+### ❓ Yardım Komutları
+
+- `/start` veya `/help` - Ana yardım
 - `/yardim_klan` - Klan komutları yardımı
-- `/yardim_oyuncu` - Oyuncu komutları yardımı
 - `/yardim_savas` - Savaş komutları yardımı
-- `/yardim_lig` - Lig komutları yardımı
 
-## 🔔 Otomatik Bildirim Sistemi
+## 🔔 Savaş Bildirimleri
 
-### Nasıl Çalışır?
-- Bot her 5 dakikada bir klan savaşını kontrol eder
-- Belirlenen zamanlarda otomatik bildirimler gönderir
-- Aynı bildirimi birden fazla göndermez
-- **Sadece adminler tarafından yönetilir**
+### Bildirim Türleri
 
-### Admin Sistemi:
-Bu sistem sadece yetkili adminler tarafından kontrol edilir:
+1. **Savaş Bulundu** - Eşleşme olduğunda
+2. **Zaman Uyarıları** - 1 saat, 30 dk, 5 dk kala
+3. **Savaş Başladı** - Saldırı başladığında
+4. **Savaş Bitti** - Sonuç bildirimi
 
-1. **Admin Paneli:** `/admin` komutu ile erişim
-2. **Admin Kontrolü:** Çevre değişkeninde tanımlı admin ID'leri
-3. **Güvenlik:** Normal kullanıcılar admin komutlarını göremez
+### Akıllı Özellikler
 
-### Admin Komutları:
-- `/admin` - Ana admin paneli
-- `/bildirim_durum` - Sistem durumunu görüntüle
-- `/bildirim_baslat` - Bildirim sistemini başlat
-- `/bildirim_durdur` - Bildirim sistemini durdur
-- `/bildirim_test` - Test bildirimi gönder
+- ✅ Tekrar bildirim gönderilmez
+- ✅ Bildirim geçmişi SQLite'da saklanır
+- ✅ Farklı savaşlar ayrı takip edilir
+- ✅ Manuel test bildirimi gönderebilme
 
-### Bildirim Türleri:
-1. **Savaş Bulundu** - Yeni savaş eşleşmesi
-2. **1 Saat Kaldı (Başlangıç)** - Savaş başlamadan 1 saat önce
-3. **30 Dakika Kaldı (Başlangıç)** - Savaş başlamadan 30 dakika önce
-4. **5 Dakika Kaldı (Başlangıç)** - Savaş başlamadan 5 dakika önce
-5. **Savaş Başladı** - Savaş başladığında
-6. **1 Saat Kaldı (Bitiş)** - Savaş bitmeden 1 saat önce
-7. **30 Dakika Kaldı (Bitiş)** - Savaş bitmeden 30 dakika önce
-8. **5 Dakika Kaldı (Bitiş)** - Savaş bitmeden 5 dakika önce
-9. **Savaş Bitti** - Savaş sonucu ile birlikte
+## 📁 Dosya Yapısı
 
-### Yönetim:
-- Sadece adminler `/admin` komutunu kullanabilir
-- Bildirim komutları ana menüde görünmez
-- Test bildirimleri admin bilgilerini içerir
-
-## 🛠️ Teknik Detaylar
-
-### Teknoloji Stack:
-- **Node.js** - Runtime environment
-- **Telegraf** - Telegram bot framework
-- **node-cron** - Zamanlama sistemi
-- **clash-of-clans-api** - CoC API client
-- **dotenv** - Environment management
-
-### Proje Yapısı:
 ```
+CoC_Bot/
 ├── src/
-│   ├── callbacks/          # Bot komut işleyicileri
-│   ├── replies/            # Mesaj şablonları
-│   ├── services/           # Otomatik servisler
-│   └── utils/              # Yardımcı fonksiyonlar
-├── index.js                # Ana bot dosyası
-├── package.json            # Bağımlılıklar
-└── README.md              # Dokümantasyon
+│   ├── callbacks/          # Komut işleyicileri
+│   ├── services/           # Ana servisler
+│   │   ├── database.js     # SQLite veritabanı
+│   │   ├── clashApi.js     # CoC API client
+│   │   ├── warNotifications.js # Savaş bildirimleri
+│   │   └── verificationService.js # Doğrulama sistemi
+│   ├── utils/              # Yardımcı fonksiyonlar
+│   └── replies/            # Mesaj şablonları
+├── bot.db                  # SQLite veritabanı (otomatik oluşur)
+├── setup.js                # Kurulum scripti
+├── index.js                # Ana uygulama
+└── package.json
 ```
 
-### Güvenlik:
-- Environment variables ile token güvenliği
-- HTML escape ile XSS koruması
-- Error handling ve logging
-- Rate limiting aware
+## 🔧 Gelişmiş Ayarlar
 
-## 🔧 Yapılandırma
+### Veritabanı Yedekleme
 
-### Klan Değiştirme:
-Farklı bir klan için kullanmak istiyorsanız:
-1. `src/callbacks/clan.js` dosyasında klan tag'ını değiştirin
-2. `src/callbacks/war.js` dosyasında klan tag'ını değiştirin
-3. `src/services/warNotifications.js` dosyasında klan tag'ını değiştirin
-
-### Bildirim Sıklığı:
-`src/services/warNotifications.js` dosyasında cron schedule'ı değiştirebilirsiniz:
-```javascript
-// Her 5 dakika: '*/5 * * * *'
-// Her dakika: '* * * * *'
-// Her 10 dakika: '*/10 * * * *'
+```bash
+cp bot.db bot_backup_$(date +%Y%m%d).db
 ```
+
+### Log Sistemi
+
+- Tüm admin işlemleri loglanır
+- Doğrulama süreçleri takip edilir
+- Bildirim gönderimi kayıt altına alınır
+
+### Güvenlik
+
+- Admin yetki kontrolü
+- Kullanıcı kimlik doğrulama
+- API rate limiting
+- Hata yakalama ve logla
 
 ## 🐛 Sorun Giderme
 
-### Yaygın Sorunlar:
-1. **Bot yanıt vermiyor**: Bot token'ını kontrol edin
-2. **Bildirimler gelmiyor**: NOTIFICATION_CHAT_ID'yi kontrol edin
-3. **API hataları**: İnternet bağlantısını kontrol edin
+### Bot Başlamıyor
 
-### Log Kontrol:
-```bash
-# Bot başlatırken logları takip edin
-npm start
+1. `npm run setup` ile konfigürasyonu kontrol edin
+2. Bot token ve API key'lerin doğruluğunu kontrol edin
+3. `bot.db` dosyasının yazma izni olduğunu kontrol edin
 
-# Console çıktılarında şunları arayın:
-# ✅ Savaş bildirim sistemi aktif!
-# 🔔 Savaş bildirimi gönderildi
-```
+### Bildirimler Çalışmıyor
+
+1. `/admin` komutu ile bildirim durumunu kontrol edin
+2. Bildirim chat ID'sinin doğruluğunu kontrol edin
+3. Botun gruba mesaj gönderme yetkisi olduğunu kontrol edin
+
+### Doğrulama Problemi
+
+1. Klan tag'inin doğru olduğunu kontrol edin
+2. CoC API'nın erişilebilir olduğunu kontrol edin
+3. Kullanıcının gruba katıldığından emin olun
 
 ## 📞 Destek
 
-Bu bot **dostluk** klanı için özel geliştirilmiştir. Sorunlar için klan liderlerine ulaşın.
+Sorun yaşarsanız:
+
+1. GitHub Issues bölümünden yeni issue açın
+2. Hata mesajlarını ve logları paylaşın
+3. Bot versiyonu ve Node.js versiyonunu belirtin
 
 ## 📄 Lisans
 
-ISC License - Kişisel ve klan kullanımı için ücretsiz.
+Bu proje MIT lisansı altında lisanslanmıştır.
 
 ---
 
-**dostluk Klanı** - Clash of Clans 🏆
+**⚡ Hızlı Başlangıç:**
+
+```bash
+git clone <repo-url>
+cd CoC_Bot
+npm install
+npm run setup
+npm start
+```
+
+**🔥 Önemli:** İlk kurulumdan sonra admin olarak `/dogrula` komutunu kullanarak kendi hesabınızı eşlemeyi unutmayın!
