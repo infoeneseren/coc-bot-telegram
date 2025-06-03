@@ -4,3 +4,5 @@ node_modules/
 test_setup.js
 bot_backup_*.db
 .DS_Store
+bot.db-shm
+bot.db-wal

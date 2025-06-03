@@ -485,13 +485,19 @@ ${result.isWin ? '🎉 Tebrikler! Harika savaş!' : '💪 Bir sonrakinde daha iy
     async sendNotification(message, notificationType, warId) {
         try {
             await this.bot.telegram.sendMessage(this.chatId, message, { parse_mode: 'Markdown' });
+            console.log(`✅ Telegram bildirimi gönderildi: ${notificationType || 'Bilinmeyen'}`);
             
-            // Veritabanına kaydet
+            // Veritabanına kaydet (non-blocking)
             if (this.database && notificationType && warId) {
-                await this.database.addNotificationHistory(notificationType, warId, message, this.chatId);
+                try {
+                    await this.database.addNotificationHistory(notificationType, warId, message, this.chatId);
+                    console.log(`📝 Bildirim geçmişi kaydedildi: ${notificationType}`);
+                } catch (dbError) {
+                    console.warn(`⚠️ Bildirim geçmişi kaydedilemedi (${notificationType}):`, dbError.message);
+                    // Database hatası mesaj gönderimini etkilemesin
+                }
             }
             
-            console.log(`✅ Bildirim gönderildi: ${notificationType || 'Bilinmeyen'}`);
         } catch (error) {
             console.error('❌ Bildirim gönderim hatası:', error.message);
         }
