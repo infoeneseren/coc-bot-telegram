@@ -16,7 +16,8 @@ class WarNotificationService {
                 warStarted: false,
                 oneHourEnd: false,
                 thirtyMinutesEnd: false,
-                fiveMinutesEnd: false
+                fiveMinutesEnd: false,
+                warEnded: false
             },
             lastWarEndTime: null,
             currentWarId: null // Benzersiz savaş ID'si
@@ -82,10 +83,14 @@ class WarNotificationService {
             const currentWarId = this.generateWarId(response);
             if (currentWarId && currentWarId !== this.notificationState.currentWarId) {
                 console.log(`🆕 Yeni savaş tespit edildi: ${currentWarId}`);
+                // Önce state'i temizle
+                this.resetNotificationState();
+                this.notificationState.lastWarState = null;
+                // Sonra yeni war ID'yi set et
                 this.notificationState.currentWarId = currentWarId;
+                // Son olarak notification history'yi yükle
                 await this.loadNotificationHistory(currentWarId);
-                // Yeni savaş başladığında state'i temizle
-                this.resetNotificationStateForNewWar();
+                console.log('🔄 Yeni savaş için state temizlendi');
             }
             
             // Savaş durumu değişti mi kontrol et
@@ -127,7 +132,7 @@ class WarNotificationService {
             // Güncellenmiş bildirim tiplerini kontrol et
             const notificationTypes = [
                 'warFound', 'fifteenMinutesStart', 'warStarted', 
-                'oneHourEnd', 'thirtyMinutesEnd', 'fiveMinutesEnd'
+                'oneHourEnd', 'thirtyMinutesEnd', 'fiveMinutesEnd', 'warEnded'
             ];
 
             for (const notificationType of notificationTypes) {
@@ -163,8 +168,11 @@ class WarNotificationService {
                 break;
                 
             case 'warEnded':
-                const message = this.createWarEndedMessage(response, clanName, safeOpponentName);
-                await this.sendNotification(message, 'warEnded', this.notificationState.currentWarId);
+                if (!this.notificationState.notificationsSent.warEnded) {
+                    const message = this.createWarEndedMessage(response, clanName, safeOpponentName);
+                    await this.sendNotification(message, 'warEnded', this.notificationState.currentWarId);
+                    this.notificationState.notificationsSent.warEnded = true;
+                }
                 break;
         }
     }
@@ -497,7 +505,8 @@ ${result.isWin ? '🎉 Tebrikler! Harika savaş!' : '💪 Bir sonrakinde daha iy
             warStarted: false,
             oneHourEnd: false,
             thirtyMinutesEnd: false,
-            fiveMinutesEnd: false
+            fiveMinutesEnd: false,
+            warEnded: false
         };
     }
 
@@ -510,14 +519,6 @@ ${result.isWin ? '🎉 Tebrikler! Harika savaş!' : '💪 Bir sonrakinde daha iy
             currentWarId: this.notificationState.currentWarId,
             chatId: this.chatId
         };
-    }
-
-    // Yeni savaş başladığında state'i temizle
-    resetNotificationStateForNewWar() {
-        this.resetNotificationState();
-        this.notificationState.lastWarState = null;
-        this.notificationState.currentWarId = null;
-        console.log('🔄 Yeni savaş için state temizlendi');
     }
 
     // Test bildirimi gönder
