@@ -87,13 +87,110 @@ async function startBot() {
 
 	// Telegram commands
 	bot.start(async (ctx) => {
-		const startMessage = await telegramReplies.getStarted(clashOfClansClient, ctx.from);
-		ctx.replyWithHTML(startMessage);
+		const userId = ctx.from.id;
+		const firstName = ctx.from.first_name || 'Kullanıcı';
+		
+		// Debug: Kullanıcı bilgilerini logla
+		console.log(`🚀 /start komutu: ${firstName} (${userId})`);
+		
+		// Doğrulama kontrolü (adminler dahil herkes doğrulama yapacak)
+		const isVerified = await database.isUserVerified(userId);
+		console.log(`📊 Start - Doğrulama durumu: ${isVerified ? 'Doğrulanmış ✅' : 'Doğrulanmamış ❌'}`);
+		
+		if (isVerified) {
+			// Zaten doğrulanmış - gruba yönlendir
+			const verifiedWelcome = `🎉 **Merhaba ${firstName}!**
+
+✅ **Hesabın zaten doğrulanmış!** 
+
+🏰 Artık **${await clan.getClanName(clashOfClansClient)}** grubumuzda tüm bot komutlarını kullanabilirsin!
+
+👇 **Gruba katılmak için aşağıdaki butona tıkla:**`;
+
+			const groupButton = [
+				[
+					{ text: '🏰 Gruba Katıl', url: 'https://t.me/cocDostluk/1' }
+				]
+			];
+
+			ctx.replyWithMarkdown(verifiedWelcome, {
+				reply_markup: {
+					inline_keyboard: groupButton
+				}
+			});
+		} else {
+			// Henüz doğrulanmamış - doğrulama yap
+			const welcomeMessage = `🎮 **${await clan.getClanName(clashOfClansClient)} Clash of Clans Bot**
+
+👋 **Merhaba ${firstName}!** 
+
+⚠️ **Gruba katılabilmek için önce hesabını doğrulaman gerekiyor.**
+
+🔗 **Doğrulama Süreci:**
+1️⃣ Aşağıdaki **🔐 Hesap Doğrula** butonuna tıkla
+2️⃣ Klandaki CoC hesabını seç  
+3️⃣ Doğrulama tamamlandıktan sonra gruba yönlendirileceksin!
+
+💡 **Not:** Sadece ${await clan.getClanName(clashOfClansClient)} klan üyeleri gruba katılabilir.`;
+
+			// Doğrulama butonu
+			const verificationButton = [
+				[
+					{ text: '🔐 Hesap Doğrula', callback_data: `start_verification_${userId}` }
+				]
+			];
+
+			ctx.replyWithMarkdown(welcomeMessage, {
+				reply_markup: {
+					inline_keyboard: verificationButton
+				}
+			});
+		}
 	});
 
 	bot.help(async (ctx) => {
-		const startMessage = await telegramReplies.getStarted(clashOfClansClient, ctx.from);
-		ctx.replyWithHTML(startMessage);
+		const userId = ctx.from.id;
+		const firstName = ctx.from.first_name || 'Kullanıcı';
+		
+		// Debug: Kullanıcı bilgilerini logla
+		console.log(`❓ /help komutu: ${firstName} (${userId})`);
+		
+		// Doğrulama kontrolü (adminler dahil herkes doğrulama yapacak)
+		const isVerified = await database.isUserVerified(userId);
+		console.log(`📊 Help - Doğrulama durumu: ${isVerified ? 'Doğrulanmış ✅' : 'Doğrulanmamış ❌'}`);
+		
+		if (isVerified) {
+			// Doğrulanmış kullanıcı - normal help mesajı
+			const startMessage = await telegramReplies.getStarted(clashOfClansClient, ctx.from);
+			ctx.replyWithHTML(startMessage);
+		} else {
+			// Henüz doğrulanmamış - doğrulama yap
+			const helpMessage = `❓ **Yardım - ${await clan.getClanName(clashOfClansClient)} Bot**
+
+👋 **Merhaba ${firstName}!** 
+
+⚠️ **Bot komutlarını görebilmek için önce hesabını doğrulaman gerekiyor.**
+
+🔗 **Doğrulama Süreci:**
+1️⃣ Aşağıdaki **🔐 Hesap Doğrula** butonuna tıkla
+2️⃣ Klandaki CoC hesabını seç  
+3️⃣ Doğrulama tamamlandıktan sonra tüm komutları görebilirsin!
+
+💡 **Not:** Sadece ${await clan.getClanName(clashOfClansClient)} klan üyeleri bot komutlarını kullanabilir.`;
+
+			// Doğrulama butonu
+			const verificationButton = [
+				[
+					{ text: '🔐 Hesap Doğrula', callback_data: `start_verification_${userId}` }
+				]
+			];
+
+			ctx.replyWithMarkdown(helpMessage, {
+				reply_markup: {
+					inline_keyboard: verificationButton
+				}
+			});
+		}
 	});
 
 	// ID komutu - kullanıcı bilgilerini göster

@@ -1,7 +1,8 @@
+yardim - Bu menüyü tekrar göster
 klan - Klanın genel bilgileri ve istatistikleri
 uyeler - Tüm klan üyelerinin detaylı listesi
 baskinlar - Başkent baskın sezonları ve istatistikleri
-oyuncu #tag - Herhangi bir oyuncunun detaylı bilgileri
+oyuncu - Herhangi bir oyuncunun detaylı bilgileri
 savas - Mevcut savaş durumu ve skorları
 savas_analiz - Detaylı savaş performans analizi
 savas_saldirmayanlar - Saldırı yapmayan üyeler
@@ -17,7 +18,6 @@ oyuncu_siralamasi - Normal oyuncu sıralaması
 builder_oyuncu_siralama - Builder Base oyuncu sıralaması
 builder_klan_siralama - Builder Base klan sıralaması
 basken_siralama - Başkent (Capital) sıralaması
-yardim - Bu menüyü tekrar göster
 yardim_klan - Klan komutları detayları
 yardim_oyuncu - Oyuncu komutları detayları
 yardim_savas - Savaş komutları detayları

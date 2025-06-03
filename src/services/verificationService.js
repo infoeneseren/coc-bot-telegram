@@ -19,42 +19,51 @@ class VerificationService {
     }
 
     async handleNewMember(ctx) {
-        const newMembers = ctx.message.new_chat_members;
-        
-        for (const member of newMembers) {
-            if (member.is_bot) continue; // Botları atla
-            
-            const userId = member.id;
-            const username = member.username;
-            const firstName = member.first_name;
-            
-            // Zaten doğrulanmış kullanıcı mı?
-            const isVerified = await this.db.isUserVerified(userId);
-            if (isVerified) {
-                continue; // Zaten doğrulanmış, mesaj gönderme
-            }
-            
-            // Bekleyen doğrulama listesine ekle
-            await this.db.addPendingVerification(userId, username, firstName);
-            
-            // Hoş geldin mesajı gönder
-            const welcomeMessage = this.createWelcomeMessage(firstName, userId);
-            
-            try {
-                await ctx.telegram.sendMessage(
-                    ctx.chat.id,
-                    welcomeMessage,
-                    { 
-                        parse_mode: 'Markdown',
-                        reply_to_message_id: ctx.message.message_id
-                    }
-                );
+        try {
+            for (const newMember of ctx.message.new_chat_members) {
+                // Bot kendisi eklendiyse işlem yapma
+                if (newMember.is_bot) continue;
                 
-                await this.db.setPendingWelcomeMessageSent(userId);
-                console.log(`✅ Hoş geldin mesajı gönderildi: ${firstName} (${userId})`);
-            } catch (error) {
-                console.error('❌ Hoş geldin mesajı gönderilemedi:', error);
+                const userId = newMember.id;
+                const firstName = newMember.first_name || 'Kullanıcı';
+                const username = newMember.username || null;
+                
+                // Doğrulanmış kullanıcı mı kontrol et
+                const isVerified = await this.db.isUserVerified(userId);
+                
+                if (isVerified) {
+                    // Doğrulanmış kullanıcı - hoş geldin mesajı
+                    const welcomeMessage = `🎉 **Hoş geldin ${firstName}!** 
+
+✅ Doğrulanmış bir klan üyesi olarak gruba katıldığın için teşekkürler!
+
+🤖 Artık tüm bot komutlarını kullanabilirsin. İyi oyunlar! 🔥`;
+
+                    await ctx.replyWithMarkdown(welcomeMessage);
+                    console.log(`✅ Doğrulanmış kullanıcı gruba katıldı: ${firstName} (${userId})`);
+                } else {
+                    // Doğrulanmamış kullanıcı - bota yönlendir
+                    const verificationNeededMessage = `👋 **Merhaba ${firstName}!**
+
+⚠️ **Dikkat!** Bu gruba katılabilmek için önce hesabını doğrulaman gerekiyor.
+
+🤖 **Lütfen önce bota mesaj at:**
+👇 Aşağıdaki butona tıklayarak doğrulama işlemini tamamla:`;
+
+                    const botButton = {
+                        reply_markup: {
+                            inline_keyboard: [[
+                                { text: '🤖 Bota Git ve Doğrula', url: 'https://t.me/coc_dostluk_bot' }
+                            ]]
+                        }
+                    };
+
+                    await ctx.replyWithMarkdown(verificationNeededMessage, botButton);
+                    console.log(`⚠️ Doğrulanmamış kullanıcı gruba katıldı: ${firstName} (${userId})`);
+                }
             }
+        } catch (error) {
+            console.error('Yeni üye karşılama hatası:', error);
         }
     }
 
@@ -66,7 +75,7 @@ Clash of Clans klanımıza katıldığın için teşekkürler!
 ⚠️ **ÖNEMLİ:** Bot komutlarını kullanabilmek için önce hesabını doğrulaman gerekiyor.
 
 🔗 **Nasıl doğrularım?**
-1️⃣ \`/dogrula\` komutunu kullan
+1️⃣ Aşağıdaki "🔐 Hesap Doğrula" butonuna tıkla
 2️⃣ Klandaki CoC hesabını seç
 3️⃣ Doğrulama tamamlandıktan sonra tüm bot özelliklerini kullanabilirsin!
 
@@ -91,18 +100,46 @@ Herhangi bir sorun yaşarsan admin ekibimizle iletişime geçebilirsin! 🤝`;
                     `${index + 1}. **${mapping.coc_player_name}** (\`${mapping.coc_player_tag}\`)`
                 ).join('\n');
                 
-                ctx.replyWithMarkdown(`✅ **Zaten doğrulanmışsın!**
+                const alreadyVerifiedMessage = `✅ **Zaten doğrulanmışsın!**
 
 🏷️ **Eşlenmiş hesapların:**
 ${mappingList}
 
-💡 Başka bir hesap eklemek istiyorsan tekrar \`/dogrula\` komutunu kullanabilirsin.`);
+📋 **Seçeneklerin:**
+🏰 **Gruba Katıl:** ${await this.getClanName()} grubuna katılabilirsin
+➕ **Başka Hesap Ekle:** Birden fazla hesabın varsa ekleyebilirsin`;
+
+                const verifiedButtons = {
+                    reply_markup: {
+                        inline_keyboard: [
+                            [
+                                { text: '🏰 Gruba Katıl', url: 'https://t.me/cocDostluk' }
+                            ],
+                            [
+                                { text: '➕ Başka Hesap Ekle', callback_data: `start_verification_${userId}` }
+                            ]
+                        ]
+                    }
+                };
+
+                ctx.replyWithMarkdown(alreadyVerifiedMessage, verifiedButtons);
                 return;
             }
             
             // Bekleyen doğrulama listesine ekle (eğer yoksa)
             await this.db.addPendingVerification(userId, username, firstName);
             
+            // Doğrulama işlemini başlat
+            await this.startVerificationProcess(ctx, userId);
+            
+        } catch (error) {
+            console.error('Doğrulama hatası:', error);
+            ctx.reply('❌ Doğrulama sırasında bir hata oluştu. Lütfen daha sonra tekrar deneyin.');
+        }
+    }
+
+    async startVerificationProcess(ctx, userId) {
+        try {
             // Klan üyelerini al
             const clanMembers = await this.getClanMembers();
             if (!clanMembers || clanMembers.length === 0) {
@@ -128,7 +165,7 @@ Admin ekibiyle iletişime geçerek durumunu açıklayabilirsin.`);
             await this.showVerificationMenu(ctx, availableMembers, userId);
             
         } catch (error) {
-            console.error('Doğrulama hatası:', error);
+            console.error('Doğrulama başlatma hatası:', error);
             ctx.reply('❌ Doğrulama sırasında bir hata oluştu. Lütfen daha sonra tekrar deneyin.');
         }
     }
@@ -145,6 +182,21 @@ Admin ekibiyle iletişime geçerek durumunu açıklayabilirsin.`);
         } catch (error) {
             console.error('Klan üyeleri alınamadı:', error);
             return [];
+        }
+    }
+
+    async getClanName() {
+        try {
+            const clanTag = await this.db.getConfig('clan_tag');
+            if (!clanTag) {
+                return 'Klan';
+            }
+            
+            const clanData = await this.coc.clanByTag(clanTag);
+            return clanData.name || 'Klan';
+        } catch (error) {
+            console.error('Klan adı alınamadı:', error);
+            return 'Klan';
         }
     }
 
@@ -202,6 +254,21 @@ Aşağıdaki listeden **kendi CoC hesabını** seç:
     }
 
     setupCallbackHandlers() {
+        // Doğrulama başlatma callback'i
+        this.bot.action(/^start_verification_(\d+)$/, async (ctx) => {
+            const callbackUserId = parseInt(ctx.match[1]);
+            const currentUserId = ctx.from.id;
+            
+            // Sadece kendi doğrulamasını başlatabilir
+            if (currentUserId !== callbackUserId) {
+                await ctx.answerCbQuery('❌ Sadece kendi hesabını doğrulayabilirsin!');
+                return;
+            }
+            
+            await ctx.answerCbQuery('🔍 Doğrulama başlatılıyor...');
+            await this.startVerificationProcess(ctx, currentUserId);
+        });
+
         // Doğrulama callback'lerini işle
         this.bot.action(/^verify_(\d+)_([A-Z0-9]+)$/, async (ctx) => {
             await this.handleVerificationCallback(ctx);
@@ -245,19 +312,41 @@ Aşağıdaki listeden **kendi CoC hesabını** seç:
             // Bekleyen doğrulamayı kaldır
             await this.db.removePendingVerification(currentUserId);
             
+            // Cache'i temizle ve doğrulamayı kontrol et
+            console.log(`🔄 Doğrulama sonrası kullanıcı kontrol ediliyor: ${currentUserId}`);
+            const isNowVerified = await this.db.isUserVerified(currentUserId);
+            console.log(`✅ Doğrulama durumu: ${isNowVerified ? 'Doğrulanmış' : 'Henüz doğrulanmamış'}`);
+            
             const successMessage = `✅ **Doğrulama Başarılı!**
 
-🎉 Hesabın başarıyla eşlendi:
+🎉 **Hesabın başarıyla eşlendi:**
 👤 **Oyuncu:** ${playerData.name}
 🏷️ **Tag:** \`${playerTag}\`
 🏆 **Seviye:** ${playerData.expLevel}
 🏰 **Belediye Binası:** ${playerData.townHallLevel}
 
-Artık tüm bot komutlarını kullanabilirsin! 🚀
+🎊 **Tebrikler!** Artık tüm bot komutlarını kullanabilirsin!
 
-💡 **İpucu:** Başka hesapların da varsa, tekrar \`/dogrula\` komutunu kullanarak ekleyebilirsin.`;
+📋 **Seçeneklerin:**
+🏰 **Gruba Katıl:** ${await this.getClanName()} grubuna katılabilirsin
+➕ **Başka Hesap Ekle:** Birden fazla hesabın varsa ekleyebilirsin`;
             
-            await ctx.editMessageText(successMessage, { parse_mode: 'Markdown' });
+            // Butonları sadeleştir ve URL formatını düzelt
+            const successButtons = [
+                [
+                    { text: '🏰 Gruba Katıl', url: 'https://t.me/cocDostluk' }
+                ],
+                [
+                    { text: '➕ Başka Hesap Ekle', callback_data: `start_verification_${currentUserId}` }
+                ]
+            ];
+            
+            await ctx.editMessageText(successMessage, { 
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: successButtons
+                }
+            });
             await ctx.answerCbQuery('✅ Doğrulama tamamlandı!');
             
             console.log(`✅ Kullanıcı doğrulandı: ${ctx.from.first_name} (${currentUserId}) -> ${playerData.name} (${playerTag})`);
@@ -278,8 +367,21 @@ Artık tüm bot komutlarını kullanabilirsin! 🚀
             return;
         }
         
-        await ctx.editMessageText('❌ **Doğrulama iptal edildi.**\n\nİstediğin zaman tekrar `/dogrula` komutunu kullanabilirsin.', {
-            parse_mode: 'Markdown'
+        const cancelMessage = `❌ **Doğrulama iptal edildi.**
+
+İstediğin zaman aşağıdaki butona tıklayarak tekrar doğrulama yapabilirsin.`;
+
+        const retryButton = {
+            reply_markup: {
+                inline_keyboard: [[
+                    { text: '🔐 Tekrar Doğrula', callback_data: `start_verification_${currentUserId}` }
+                ]]
+            }
+        };
+        
+        await ctx.editMessageText(cancelMessage, {
+            parse_mode: 'Markdown',
+            reply_markup: retryButton
         });
         await ctx.answerCbQuery('İptal edildi');
     }
@@ -288,12 +390,7 @@ Artık tüm bot komutlarını kullanabilirsin! 🚀
     createVerificationMiddleware() {
         return async (ctx, next) => {
             const userId = ctx.from.id;
-            
-            // Admin kontrolü - adminler doğrulama olmadan komut kullanabilir
-            const isAdmin = await this.db.isAdmin(userId);
-            if (isAdmin) {
-                return next();
-            }
+            const firstName = ctx.from.first_name || 'Kullanıcı';
             
             // start, help, dogrula komutları için doğrulama gerektirmeyen
             const exemptCommands = ['start', 'help', 'dogrula', 'yardim'];
@@ -303,21 +400,37 @@ Artık tüm bot komutlarını kullanabilirsin! 🚀
                 return next();
             }
             
+            // Debug: Doğrulama durumunu kontrol et
+            console.log(`🔍 Kullanıcı doğrulama kontrolü: ${firstName} (${userId})`);
+            
             // Doğrulanmış kullanıcı mı?
             const isVerified = await this.db.isUserVerified(userId);
+            console.log(`📊 Doğrulama durumu: ${isVerified ? 'Doğrulanmış ✅' : 'Doğrulanmamış ❌'}`);
+            
             if (!isVerified) {
-                const warningMessage = `⚠️ **Hesap Doğrulama Gerekli!**
+                const warningMessage = `⚠️ **Merhaba ${firstName}!**
 
 Bu komutu kullanabilmek için önce hesabını doğrulaman gerekiyor.
 
-🔗 **Doğrulama yapmak için:** \`/dogrula\` komutunu kullan
-
-💡 Doğrulama işlemi sadece birkaç saniye sürer ve klandaki CoC hesabınla eşleme yapar.`;
+🤖 **Lütfen önce bota özel mesaj at:**
+👇 Aşağıdaki butona tıklayarak doğrulama işlemini tamamla:`;
                 
-                ctx.replyWithMarkdown(warningMessage);
+                // Bot linki butonu - sadeleştirilmiş format
+                const botButton = [
+                    [
+                        { text: '🤖 Bota Git ve Doğrula', url: 'https://t.me/coc_dostluk_bot' }
+                    ]
+                ];
+                
+                ctx.replyWithMarkdown(warningMessage, {
+                    reply_markup: {
+                        inline_keyboard: botButton
+                    }
+                });
                 return; // next() çağırma, komut çalışmasın
             }
             
+            console.log(`✅ Kullanıcı doğrulanmış, komut devam ediyor: ${firstName}`);
             return next();
         };
     }
