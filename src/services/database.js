@@ -1,81 +1,11 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
-const fs = require('fs');
 
 class Database {
     constructor() {
-        this.initializeDatabase();
-    }
-
-    initializeDatabase() {
-        // Database path'ini daha güvenli şekilde belirle
-        const dbPath = process.env.DB_PATH || path.join(process.cwd(), 'bot.db');
-        this.dbPath = dbPath;
-        
-        console.log(`🗄️  Database path: ${this.dbPath}`);
-        console.log(`📁 Working directory: ${process.cwd()}`);
-        
-        // Database dosyası ve dizininin varlığını kontrol et
-        const dbDir = path.dirname(this.dbPath);
-        
-        try {
-            // Dizin yoksa oluştur
-            if (!fs.existsSync(dbDir)) {
-                fs.mkdirSync(dbDir, { recursive: true });
-                console.log(`📁 Database dizini oluşturuldu: ${dbDir}`);
-            }
-            
-            // Dosya varlığını kontrol et
-            const fileExists = fs.existsSync(this.dbPath);
-            console.log(`📄 Database dosyası ${fileExists ? 'mevcut' : 'mevcut değil'}: ${this.dbPath}`);
-            
-            this.connectToDatabase();
-            
-        } catch (error) {
-            console.error('❌ Database path kontrolü hatası:', error.message);
-            // Fallback: current directory'de dene
-            this.dbPath = path.join(process.cwd(), 'bot.db');
-            console.log(`🔄 Fallback path deneniyor: ${this.dbPath}`);
-            this.connectToDatabase();
-        }
-    }
-
-    connectToDatabase() {
-        // Database connection'ı retry mechanism ile oluştur
-        try {
-            this.db = new sqlite3.Database(this.dbPath, (err) => {
-                if (err) {
-                    console.error('❌ Veritabanı bağlantı hatası:', err.message);
-                    console.error('📍 Database path:', this.dbPath);
-                    
-                    // 5 saniye sonra yeniden dene
-                    setTimeout(() => {
-                        console.log('🔄 Veritabanı bağlantısı yeniden deneniyor...');
-                        this.connectToDatabase();
-                    }, 5000);
-                    return;
-                }
-                console.log('✅ Veritabanı bağlantısı başarılı');
-                this.initializeTables();
-            });
-
-            // WAL modu aktif et (better concurrency)
-            this.db.run("PRAGMA journal_mode=WAL;", (err) => {
-                if (err) console.warn('⚠️ WAL mode ayarlanamadı:', err.message);
-            });
-            this.db.run("PRAGMA synchronous=NORMAL;", (err) => {
-                if (err) console.warn('⚠️ Synchronous mode ayarlanamadı:', err.message);
-            });
-            this.db.run("PRAGMA temp_store=memory;", (err) => {
-                if (err) console.warn('⚠️ Temp store ayarlanamadı:', err.message);
-            });
-            this.db.run("PRAGMA busy_timeout=30000;", (err) => {
-                if (err) console.warn('⚠️ Busy timeout ayarlanamadı:', err.message);
-            });
-
-        } catch (error) {
-            console.error('❌ Veritabanı başlatma hatası:', error.message);
-        }
+        const dbPath = path.join(__dirname, '../../bot.db');
+        this.db = new sqlite3.Database(dbPath);
+        this.initializeTables();
     }
 
     initializeTables() {
@@ -144,32 +74,14 @@ class Database {
 
     async setConfig(key, value) {
         return new Promise((resolve, reject) => {
-            const attemptWrite = (retryCount = 0) => {
-                this.db.run(
-                    'INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
-                    [key, value],
-                    function(err) {
-                        if (err) {
-                            console.error(`❌ Config kaydetme hatası (${retryCount + 1}/3):`, err.message);
-                            
-                            // SQLITE_READONLY veya SQLITE_BUSY hataları için retry yap
-                            if ((err.message.includes('READONLY') || err.message.includes('BUSY') || err.message.includes('LOCKED')) && retryCount < 2) {
-                                console.log(`🔄 ${retryCount + 1}. deneme başarısız, ${2000 * (retryCount + 1)}ms sonra yeniden deneniyor...`);
-                                setTimeout(() => {
-                                    attemptWrite(retryCount + 1);
-                                }, 2000 * (retryCount + 1));
-                                return;
-                            }
-                            
-                            reject(err);
-                        } else {
-                            resolve(this.lastID);
-                        }
-                    }
-                );
-            };
-            
-            attemptWrite();
+            this.db.run(
+                'INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
+                [key, value],
+                function(err) {
+                    if (err) reject(err);
+                    else resolve(this.lastID);
+                }
+            );
         });
     }
 
@@ -196,34 +108,14 @@ class Database {
 
     async addNotificationHistory(notificationType, warTag, messageContent, chatId) {
         return new Promise((resolve, reject) => {
-            const attemptWrite = (retryCount = 0) => {
-                this.db.run(
-                    'INSERT OR IGNORE INTO notification_history (notification_type, war_tag, message_content, chat_id) VALUES (?, ?, ?, ?)',
-                    [notificationType, warTag, messageContent, chatId],
-                    function(err) {
-                        if (err) {
-                            console.error(`❌ Bildirim geçmişi kaydetme hatası (${retryCount + 1}/3):`, err.message);
-                            
-                            // SQLITE_READONLY veya SQLITE_BUSY hataları için retry yap
-                            if ((err.message.includes('READONLY') || err.message.includes('BUSY') || err.message.includes('LOCKED')) && retryCount < 2) {
-                                console.log(`🔄 ${retryCount + 1}. deneme başarısız, ${2000 * (retryCount + 1)}ms sonra yeniden deneniyor...`);
-                                setTimeout(() => {
-                                    attemptWrite(retryCount + 1);
-                                }, 2000 * (retryCount + 1));
-                                return;
-                            }
-                            
-                            // Hala hata varsa ama critical değil, resolve et
-                            console.warn('⚠️ Bildirim geçmişi kaydedilemedi, devam ediliyor...');
-                            resolve(null);
-                        } else {
-                            resolve(this.lastID);
-                        }
-                    }
-                );
-            };
-            
-            attemptWrite();
+            this.db.run(
+                'INSERT OR IGNORE INTO notification_history (notification_type, war_tag, message_content, chat_id) VALUES (?, ?, ?, ?)',
+                [notificationType, warTag, messageContent, chatId],
+                function(err) {
+                    if (err) reject(err);
+                    else resolve(this.lastID);
+                }
+            );
         });
     }
 
