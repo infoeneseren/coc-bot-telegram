@@ -1,23 +1,57 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const fs = require('fs');
 
 class Database {
     constructor() {
-        const dbPath = path.join(__dirname, '../../bot.db');
-        this.dbPath = dbPath;
         this.initializeDatabase();
     }
 
     initializeDatabase() {
+        // Database path'ini daha güvenli şekilde belirle
+        const dbPath = process.env.DB_PATH || path.join(process.cwd(), 'bot.db');
+        this.dbPath = dbPath;
+        
+        console.log(`🗄️  Database path: ${this.dbPath}`);
+        console.log(`📁 Working directory: ${process.cwd()}`);
+        
+        // Database dosyası ve dizininin varlığını kontrol et
+        const dbDir = path.dirname(this.dbPath);
+        
+        try {
+            // Dizin yoksa oluştur
+            if (!fs.existsSync(dbDir)) {
+                fs.mkdirSync(dbDir, { recursive: true });
+                console.log(`📁 Database dizini oluşturuldu: ${dbDir}`);
+            }
+            
+            // Dosya varlığını kontrol et
+            const fileExists = fs.existsSync(this.dbPath);
+            console.log(`📄 Database dosyası ${fileExists ? 'mevcut' : 'mevcut değil'}: ${this.dbPath}`);
+            
+            this.connectToDatabase();
+            
+        } catch (error) {
+            console.error('❌ Database path kontrolü hatası:', error.message);
+            // Fallback: current directory'de dene
+            this.dbPath = path.join(process.cwd(), 'bot.db');
+            console.log(`🔄 Fallback path deneniyor: ${this.dbPath}`);
+            this.connectToDatabase();
+        }
+    }
+
+    connectToDatabase() {
         // Database connection'ı retry mechanism ile oluştur
         try {
             this.db = new sqlite3.Database(this.dbPath, (err) => {
                 if (err) {
                     console.error('❌ Veritabanı bağlantı hatası:', err.message);
+                    console.error('📍 Database path:', this.dbPath);
+                    
                     // 5 saniye sonra yeniden dene
                     setTimeout(() => {
                         console.log('🔄 Veritabanı bağlantısı yeniden deneniyor...');
-                        this.initializeDatabase();
+                        this.connectToDatabase();
                     }, 5000);
                     return;
                 }
